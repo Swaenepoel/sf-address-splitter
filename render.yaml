@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: sf-address-splitter
+    env: node
+    plan: free
+    buildCommand: ""
+    startCommand: node index.js
+    envVars:
+      - key: BASIC_USER
+        value: sf_user
+      - key: BASIC_PASS
+        generateValue: true
+      - key: PORT
+        value: 3000

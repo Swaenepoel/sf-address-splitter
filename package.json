@@ -1,0 +1,12 @@
+{
+  "name": "address-splitter-api",
+  "version": "1.0.0",
+  "description": "SuccessFactors address splitting API - replicates ZCL_ADDRESS_WEB_HANDLER logic",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
