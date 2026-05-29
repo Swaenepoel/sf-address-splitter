@@ -8,60 +8,73 @@ const BASIC_PASS = process.env.BASIC_PASS || 'sf_pass';
 function fetchNominatim(address) {
   return new Promise((resolve, reject) => {
     const encoded = encodeURIComponent(address);
-    const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&addressdetails=1&limit=1`;
+    const url = 'https://nominatim.openstreetmap.org/search?q=' + encoded + '&format=json&addressdetails=1&limit=1';
     const options = { headers: { 'User-Agent': 'BTP-SuccessFactors-AddressSplitter' } };
-    https.get(url, options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
+    https.get(url, options, function(res) {
+      var data = '';
+      res.on('data', function(chunk) { data += chunk; });
+      res.on('end', function() {
+        try { resolve(JSON.parse(data)); }
+        catch(e) { reject(e); }
+      });
     }).on('error', reject);
   });
 }
 
-const countryToISO3 = {
-  'united states': 'USA', 'us': 'USA', 'usa': 'USA', 'united states of america': 'USA',
-  'united kingdom': 'GBR', 'uk': 'GBR', 'germany': 'DEU', 'france': 'FRA',
-  'netherlands': 'NLD', 'belgium': 'BEL', 'spain': 'ESP', 'italy': 'ITA',
-  'canada': 'CAN', 'australia': 'AUS', 'india': 'IND', 'china': 'CHN',
-  'japan': 'JPN', 'brazil': 'BRA', 'mexico': 'MEX', 'sweden': 'SWE',
-  'norway': 'NOR', 'denmark': 'DNK', 'finland': 'FIN', 'switzerland': 'CHE',
-  'austria': 'AUT', 'poland': 'POL', 'portugal': 'PRT', 'ireland': 'IRL'
+var countryToISO3 = {
+  'united states': 'USA', 'us': 'USA', 'usa': 'USA',
+  'united states of america': 'USA', 'united kingdom': 'GBR',
+  'uk': 'GBR', 'germany': 'DEU', 'france': 'FRA',
+  'netherlands': 'NLD', 'belgium': 'BEL', 'spain': 'ESP',
+  'italy': 'ITA', 'canada': 'CAN', 'australia': 'AUS',
+  'india': 'IND', 'china': 'CHN', 'japan': 'JPN',
+  'brazil': 'BRA', 'mexico': 'MEX', 'sweden': 'SWE',
+  'norway': 'NOR', 'denmark': 'DNK', 'finland': 'FIN',
+  'switzerland': 'CHE', 'austria': 'AUT', 'poland': 'POL',
+  'portugal': 'PRT', 'ireland': 'IRL'
 };
 
-function getISO3Country(countryName, fallback) {
-  if (!countryName) return fallback || 'USA';
-  return countryToISO3[countryName.toLowerCase().trim()] || fallback || 'USA';
+function getISO3Country(name, fallback) {
+  if (!name) return fallback || 'USA';
+  return countryToISO3[name.toLowerCase().trim()] || fallback || 'USA';
 }
 
-// Try to parse body as JSON, handling XML or invalid content gracefully
+function extractField(body, fieldName) {
+  var idx = body.indexOf('"' + fieldName + '"');
+  if (idx === -1) return '';
+  var rest = body.substring(idx + fieldName.length + 2);
+  var colon = rest.indexOf(':');
+  if (colon === -1) return '';
+  rest = rest.substring(colon + 1).trim();
+  if (rest[0] === '"') {
+    var end = rest.indexOf('"', 1);
+    return end === -1 ? '' : rest.substring(1, end);
+  }
+  return '';
+}
+
 function safeParseJSON(body) {
   try {
     return JSON.parse(body);
-  } catch (e) {
-    // Try to extract key fields from XML-like content using regex
-    const result = {};
-    const addressMatch = body.match(/"address"\s*:\s*"([^"]+)"/);
-    const countryMatch = body.match(/"country"\s*:\s*"([^"]+)"/);
-    const addressTypeMatch = body.match(/"addressType"\s*:\s*"([^"]+)"/);
-    const personIdMatch = body.match(/"personIdExternal"\s*:\s*"([^"]+)"/);
-    const startDateMatch = body.match(/"startDate"\s*:\s*"([^"]+)"/);
-    const startDateMatch2 = body.match(/"startDate"\s*:\s*(/Date\([0-9]+\)/)/);
-    if (addressMatch) result.address = addressMatch[1];
-    if (countryMatch) result.country = countryMatch[1];
-    if (addressTypeMatch) result.addressType = addressTypeMatch[1];
-    if (personIdMatch) result.personIdExternal = personIdMatch[1];
-    const startDateMatch = body.match(/"startDate"\s*:\s*"([^"]+)"/);
-    if (startDateMatch) result.startDate = startDateMatch[1];
-    return result;
+  } catch(e) {
+    return {
+      address: extractField(body, 'address'),
+      country: extractField(body, 'country'),
+      addressType: extractField(body, 'addressType'),
+      personIdExternal: extractField(body, 'personIdExternal'),
+      startDate: extractField(body, 'startDate')
+    };
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
+var server = http.createServer(function(req, res) {
+  var authHeader = req.headers['authorization'] || '';
   if (authHeader) {
-    const base64 = authHeader.replace('Basic ', '');
-    const decoded = Buffer.from(base64, 'base64').toString('utf-8');
-    const [user, pass] = decoded.split(':');
+    var base64 = authHeader.replace('Basic ', '');
+    var decoded = Buffer.from(base64, 'base64').toString('utf-8');
+    var parts = decoded.split(':');
+    var user = parts[0];
+    var pass = parts.slice(1).join(':');
     if (user !== BASIC_USER || pass !== BASIC_PASS) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Address API"' });
       res.end(JSON.stringify({ error: 'Unauthorized' }));
@@ -70,49 +83,44 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && req.url === '/sap/bc/http/sap/Z_API_ADDRESS_SPLIT') {
-    let body = '';
-    req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
-      try {
-        const parsed = safeParseJSON(body || '{}');
-        const inputCountry = parsed.country || 'USA';
-        const addressType = parsed.addressType || 'home';
-        const personIdExternal = parsed.personIdExternal || '';
-        const startDate = parsed.startDate || '';
+    var body = '';
+    req.on('data', function(chunk) { body += chunk; });
+    req.on('end', function() {
+      var parsed = safeParseJSON(body || '{}');
+      var inputCountry = parsed.country || 'USA';
+      var addressType = parsed.addressType || 'home';
+      var personIdExternal = parsed.personIdExternal || '';
+      var startDate = parsed.startDate || '';
 
-        if (!parsed.address || parsed.address.trim() === '') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
-          return;
-        }
+      if (!parsed.address || parsed.address.trim() === '') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType: addressType, personIdExternal: personIdExternal, startDate: startDate }));
+        return;
+      }
 
-        const results = await fetchNominatim(parsed.address);
-
+      fetchNominatim(parsed.address).then(function(results) {
         if (!results || results.length === 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType: addressType, personIdExternal: personIdExternal, startDate: startDate }));
           return;
         }
-
-        const addr = results[0].address || {};
-        const output = {
-          street:           addr.road || addr.pedestrian || addr.footway || '',
-          house_number:     addr.house_number || '',
-          zip_code:         addr.postcode || '',
-          city:             addr.city || addr.town || addr.village || addr.municipality || '',
-          country:          getISO3Country(addr.country || '', inputCountry),
-          addressType:      addressType,
+        var addr = results[0].address || {};
+        var output = {
+          street: addr.road || addr.pedestrian || addr.footway || '',
+          house_number: addr.house_number || '',
+          zip_code: addr.postcode || '',
+          city: addr.city || addr.town || addr.village || addr.municipality || '',
+          country: getISO3Country(addr.country || '', inputCountry),
+          addressType: addressType,
           personIdExternal: personIdExternal,
-          startDate:        startDate
+          startDate: startDate
         };
-
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(output));
-
-      } catch (e) {
+      }).catch(function(e) {
         res.writeHead(500);
         res.end(JSON.stringify({ error: e.message }));
-      }
+      });
     });
 
   } else if (req.method === 'GET' && req.url === '/health') {
@@ -124,4 +132,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`Address splitter API running on port ${PORT}`));
+server.listen(PORT, function() {
+  console.log('Address splitter API running on port ' + PORT);
+});
