@@ -9,37 +9,47 @@ function fetchNominatim(address) {
   return new Promise((resolve, reject) => {
     const encoded = encodeURIComponent(address);
     const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&addressdetails=1&limit=1`;
-    const options = {
-      headers: { 'User-Agent': 'BTP-SuccessFactors-AddressSplitter' }
-    };
+    const options = { headers: { 'User-Agent': 'BTP-SuccessFactors-AddressSplitter' } };
     https.get(url, options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)); }
-        catch (e) { reject(e); }
-      });
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } });
     }).on('error', reject);
   });
 }
 
 const countryToISO3 = {
   'united states': 'USA', 'us': 'USA', 'usa': 'USA', 'united states of america': 'USA',
-  'united kingdom': 'GBR', 'uk': 'GBR', 'great britain': 'GBR',
-  'germany': 'DEU', 'france': 'FRA', 'netherlands': 'NLD',
-  'belgium': 'BEL', 'spain': 'ESP', 'italy': 'ITA',
-  'canada': 'CAN', 'australia': 'AUS', 'india': 'IND',
-  'china': 'CHN', 'japan': 'JPN', 'brazil': 'BRA',
-  'mexico': 'MEX', 'south africa': 'ZAF', 'sweden': 'SWE',
-  'norway': 'NOR', 'denmark': 'DNK', 'finland': 'FIN',
-  'switzerland': 'CHE', 'austria': 'AUT', 'poland': 'POL',
-  'portugal': 'PRT', 'ireland': 'IRL', 'new zealand': 'NZL'
+  'united kingdom': 'GBR', 'uk': 'GBR', 'germany': 'DEU', 'france': 'FRA',
+  'netherlands': 'NLD', 'belgium': 'BEL', 'spain': 'ESP', 'italy': 'ITA',
+  'canada': 'CAN', 'australia': 'AUS', 'india': 'IND', 'china': 'CHN',
+  'japan': 'JPN', 'brazil': 'BRA', 'mexico': 'MEX', 'sweden': 'SWE',
+  'norway': 'NOR', 'denmark': 'DNK', 'finland': 'FIN', 'switzerland': 'CHE',
+  'austria': 'AUT', 'poland': 'POL', 'portugal': 'PRT', 'ireland': 'IRL'
 };
 
 function getISO3Country(countryName, fallback) {
   if (!countryName) return fallback || 'USA';
-  const lower = countryName.toLowerCase().trim();
-  return countryToISO3[lower] || fallback || 'USA';
+  return countryToISO3[countryName.toLowerCase().trim()] || fallback || 'USA';
+}
+
+// Try to parse body as JSON, handling XML or invalid content gracefully
+function safeParseJSON(body) {
+  try {
+    return JSON.parse(body);
+  } catch (e) {
+    // Try to extract key fields from XML-like content using regex
+    const result = {};
+    const addressMatch = body.match(/"address"\s*:\s*"([^"]+)"/);
+    const countryMatch = body.match(/"country"\s*:\s*"([^"]+)"/);
+    const addressTypeMatch = body.match(/"addressType"\s*:\s*"([^"]+)"/);
+    const personIdMatch = body.match(/"personIdExternal"\s*:\s*"([^"]+)"/);
+    if (addressMatch) result.address = addressMatch[1];
+    if (countryMatch) result.country = countryMatch[1];
+    if (addressTypeMatch) result.addressType = addressTypeMatch[1];
+    if (personIdMatch) result.personIdExternal = personIdMatch[1];
+    return result;
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -60,23 +70,14 @@ const server = http.createServer(async (req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        if (!body || body.trim() === '') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: 'USA', addressType: '', personIdExternal: '', startDate: '' }));
-          return;
-        }
-
-        const parsed = JSON.parse(body);
+        const parsed = safeParseJSON(body || '{}');
         const inputCountry = parsed.country || 'USA';
-
-        // Echo back the key fields from the request
-        const addressType = parsed.addressType || '';
+        const addressType = parsed.addressType || 'home';
         const personIdExternal = parsed.personIdExternal || '';
-        const startDate = parsed.startDate || '';
 
         if (!parsed.address || parsed.address.trim() === '') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal }));
           return;
         }
 
@@ -84,23 +85,19 @@ const server = http.createServer(async (req, res) => {
 
         if (!results || results.length === 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal }));
           return;
         }
 
         const addr = results[0].address || {};
-        const nominatimCountry = addr.country || '';
-        const iso3Country = getISO3Country(nominatimCountry, inputCountry);
-
         const output = {
           street:           addr.road || addr.pedestrian || addr.footway || '',
           house_number:     addr.house_number || '',
           zip_code:         addr.postcode || '',
           city:             addr.city || addr.town || addr.village || addr.municipality || '',
-          country:          iso3Country,
+          country:          getISO3Country(addr.country || '', inputCountry),
           addressType:      addressType,
-          personIdExternal: personIdExternal,
-          startDate:        startDate
+          personIdExternal: personIdExternal
         };
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
