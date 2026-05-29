@@ -44,10 +44,14 @@ function safeParseJSON(body) {
     const countryMatch = body.match(/"country"\s*:\s*"([^"]+)"/);
     const addressTypeMatch = body.match(/"addressType"\s*:\s*"([^"]+)"/);
     const personIdMatch = body.match(/"personIdExternal"\s*:\s*"([^"]+)"/);
+    const startDateMatch = body.match(/"startDate"\s*:\s*"([^"]+)"/);
+    const startDateMatch2 = body.match(/"startDate"\s*:\s*(/Date\([0-9]+\)/)/);
     if (addressMatch) result.address = addressMatch[1];
     if (countryMatch) result.country = countryMatch[1];
     if (addressTypeMatch) result.addressType = addressTypeMatch[1];
     if (personIdMatch) result.personIdExternal = personIdMatch[1];
+    const startDateMatch = body.match(/"startDate"\s*:\s*"([^"]+)"/);
+    if (startDateMatch) result.startDate = startDateMatch[1];
     return result;
   }
 }
@@ -74,10 +78,11 @@ const server = http.createServer(async (req, res) => {
         const inputCountry = parsed.country || 'USA';
         const addressType = parsed.addressType || 'home';
         const personIdExternal = parsed.personIdExternal || '';
+        const startDate = parsed.startDate || '';
 
         if (!parsed.address || parsed.address.trim() === '') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
           return;
         }
 
@@ -85,7 +90,7 @@ const server = http.createServer(async (req, res) => {
 
         if (!results || results.length === 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
           return;
         }
 
@@ -97,7 +102,8 @@ const server = http.createServer(async (req, res) => {
           city:             addr.city || addr.town || addr.village || addr.municipality || '',
           country:          getISO3Country(addr.country || '', inputCountry),
           addressType:      addressType,
-          personIdExternal: personIdExternal
+          personIdExternal: personIdExternal,
+          startDate:        startDate
         };
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
