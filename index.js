@@ -23,7 +23,6 @@ function fetchNominatim(address) {
   });
 }
 
-// Map common country names to ISO 3-letter codes
 const countryToISO3 = {
   'united states': 'USA', 'us': 'USA', 'usa': 'USA', 'united states of america': 'USA',
   'united kingdom': 'GBR', 'uk': 'GBR', 'great britain': 'GBR',
@@ -44,7 +43,6 @@ function getISO3Country(countryName, fallback) {
 }
 
 const server = http.createServer(async (req, res) => {
-  // Basic Auth check
   const authHeader = req.headers['authorization'] || '';
   if (authHeader) {
     const base64 = authHeader.replace('Basic ', '');
@@ -64,18 +62,21 @@ const server = http.createServer(async (req, res) => {
       try {
         if (!body || body.trim() === '') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: 'USA' }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: 'USA', addressType: '', personIdExternal: '', startDate: '' }));
           return;
         }
 
         const parsed = JSON.parse(body);
-
-        // Pass through the country from the request, defaulting to USA
         const inputCountry = parsed.country || 'USA';
+
+        // Echo back the key fields from the request
+        const addressType = parsed.addressType || '';
+        const personIdExternal = parsed.personIdExternal || '';
+        const startDate = parsed.startDate || '';
 
         if (!parsed.address || parsed.address.trim() === '') {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
           return;
         }
 
@@ -83,7 +84,7 @@ const server = http.createServer(async (req, res) => {
 
         if (!results || results.length === 0) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry }));
+          res.end(JSON.stringify({ street: '', house_number: '', zip_code: '', city: '', country: inputCountry, addressType, personIdExternal, startDate }));
           return;
         }
 
@@ -92,11 +93,14 @@ const server = http.createServer(async (req, res) => {
         const iso3Country = getISO3Country(nominatimCountry, inputCountry);
 
         const output = {
-          street:       addr.road        || addr.pedestrian || addr.footway || '',
-          house_number: addr.house_number || '',
-          zip_code:     addr.postcode    || '',
-          city:         addr.city        || addr.town || addr.village || addr.municipality || '',
-          country:      iso3Country
+          street:           addr.road || addr.pedestrian || addr.footway || '',
+          house_number:     addr.house_number || '',
+          zip_code:         addr.postcode || '',
+          city:             addr.city || addr.town || addr.village || addr.municipality || '',
+          country:          iso3Country,
+          addressType:      addressType,
+          personIdExternal: personIdExternal,
+          startDate:        startDate
         };
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -111,7 +115,6 @@ const server = http.createServer(async (req, res) => {
   } else if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200);
     res.end(JSON.stringify({ status: 'ok' }));
-
   } else {
     res.writeHead(404);
     res.end(JSON.stringify({ error: 'Not found' }));
